@@ -27,6 +27,8 @@ namespace N_m3u8DL_CLI
         private string m3u8Url = string.Empty;
         private string downDir = string.Empty;
         private string downName = string.Empty;
+        private string keyFile = string.Empty;
+        private string keyBase64 = string.Empty;
         private long bestBandwidth = 0;
         private string bestUrl = string.Empty;
         private string bestUrlAudio = string.Empty;
@@ -46,6 +48,8 @@ namespace N_m3u8DL_CLI
         private static string durEnd = "";
         //是否自动清除优酷广告分片
         private static bool delAd = true;
+        //标记是否已清除优酷广告分片
+        private static bool hasAd = false;
 
         public string BaseUrl { get => baseUrl; set => baseUrl = value; }
         public string M3u8Url { get => m3u8Url; set => m3u8Url = value; }
@@ -57,6 +61,8 @@ namespace N_m3u8DL_CLI
         public static bool DelAd { get => delAd; set => delAd = value; }
         public static string DurStart { get => durStart; set => durStart = value; }
         public static string DurEnd { get => durEnd; set => durEnd = value; }
+        public string KeyFile { get => keyFile; set => keyFile = value; }
+        public string KeyBase64 { get => keyBase64; set => keyBase64 = value; }
 
         public void Parse()
         {
@@ -105,15 +111,36 @@ namespace N_m3u8DL_CLI
             if (m3u8Content.Contains("qiqiuyun.net/") || m3u8Content.Contains("aliyunedu.net/") || m3u8Content.Contains("qncdn.edusoho.net/")) //气球云
                 isQiQiuYun = true;
 
+            if (M3u8Url.Contains("tlivecloud-playback-cdn.ysp.cctv.cn") && M3u8Url.Contains("endtime="))
+                isEndlist = true;
+
             //输出m3u8文件
             File.WriteAllText(m3u8SavePath, m3u8Content);
 
             //如果BaseUrl为空则截取字符串充当
             if (BaseUrl == "")
-                BaseUrl = GetBaseUrl(M3u8Url, headers);
+            {
+                if (new Regex("#YUMING\\|(.*)").IsMatch(m3u8Content))
+                    BaseUrl = new Regex("#YUMING\\|(.*)").Match(m3u8Content).Groups[1].Value;
+                else
+                    BaseUrl = GetBaseUrl(M3u8Url, headers);
+            }
 
             LOGGER.WriteLine("Parsing Content");
             LOGGER.PrintLine("解析m3u8内容");
+
+            if (!string.IsNullOrEmpty(keyBase64))
+            {
+                string line = $"#EXT-X-KEY:METHOD=AES-128,URI=\"base64:{keyBase64}\"";
+                m3u8CurrentKey = ParseKey(line);
+            }
+            if (!string.IsNullOrEmpty(keyFile))
+            {
+                Uri u = new Uri(keyFile);
+                string line = $"#EXT-X-KEY:METHOD=AES-128,URI=\"{u.ToString()}\"";
+                m3u8CurrentKey = ParseKey(line);
+            }
+
             //逐行分析
             using (StringReader sr = new StringReader(m3u8Content))
             {
@@ -180,7 +207,16 @@ namespace N_m3u8DL_CLI
                     //解析不连续标记，需要单独合并（timestamp不同）
                     else if (line.StartsWith(HLSTags.ext_x_discontinuity))
                     {
-                        if (segments.Count > 1)
+                        //修复优酷去除广告后的遗留问题
+                        if (hasAd && parts.Count > 0)
+                        {
+                            segments = (JArray)parts[parts.Count - 1];
+                            parts.RemoveAt(parts.Count - 1);
+                            hasAd = false;
+                            continue;
+                        }
+                        //常规情况的#EXT-X-DISCONTINUITY标记，新建part
+                        if (!hasAd && segments.Count > 1)
                         {
                             parts.Add(segments);
                             segments = new JArray();
@@ -192,7 +228,7 @@ namespace N_m3u8DL_CLI
                     else if (line.StartsWith(HLSTags.ext_x_version)) ;
                     else if (line.StartsWith(HLSTags.ext_x_allow_cache)) ;
                     //解析KEY
-                    else if (line.StartsWith(HLSTags.ext_x_key))
+                    else if (line.StartsWith(HLSTags.ext_x_key) && string.IsNullOrEmpty(keyFile) && string.IsNullOrEmpty(keyBase64))
                     {
                         m3u8CurrentKey = ParseKey(line);
                         //存储为上一行的key信息
@@ -243,7 +279,10 @@ namespace N_m3u8DL_CLI
                         if (Global.GetTagAttribute(line, "TYPE") == "AUDIO")
                             MEDIA_AUDIO.Add(Global.GetTagAttribute(line, "GROUP-ID"), CombineURL(BaseUrl, Global.GetTagAttribute(line, "URI")));
                         if (Global.GetTagAttribute(line, "TYPE") == "SUBTITLES")
-                            MEDIA_SUB.Add(Global.GetTagAttribute(line, "GROUP-ID"), CombineURL(BaseUrl, Global.GetTagAttribute(line, "URI")));
+                        {
+                            if (!MEDIA_SUB.ContainsKey(Global.GetTagAttribute(line, "GROUP-ID")))
+                                MEDIA_SUB.Add(Global.GetTagAttribute(line, "GROUP-ID"), CombineURL(BaseUrl, Global.GetTagAttribute(line, "URI")));
+                        }
                     }
                     else if (line.StartsWith(HLSTags.ext_x_playlist_type)) ;
                     else if (line.StartsWith(HLSTags.ext_i_frames_only))
@@ -257,7 +296,8 @@ namespace N_m3u8DL_CLI
                     //m3u8主体结束
                     else if (line.StartsWith(HLSTags.ext_x_endlist))
                     {
-                        parts.Add(segments);
+                        if (segments.Count > 0)
+                            parts.Add(segments);
                         segments = new JArray();
                         isEndlist = true;
                     }
@@ -278,7 +318,7 @@ namespace N_m3u8DL_CLI
                     else if (expectSegment)
                     {
                         segUrl = CombineURL(BaseUrl, line);
-                        if (M3u8Url.Contains("akamaized.net") && M3u8Url.Contains("?__gda__"))
+                        if (M3u8Url.Contains("?__gda__"))
                         {
                             segUrl += new Regex("\\?__gda__.*").Match(M3u8Url).Value;
                         }
@@ -286,10 +326,20 @@ namespace N_m3u8DL_CLI
                         segments.Add(segInfo);
                         segInfo = new JObject();
                         //优酷的广告分段则清除此分片
-                        if (DelAd && segUrl.Contains("ccode") && segUrl.Contains("/ad/") && segUrl.Contains("duration"))
+                        //需要注意，遇到广告说明程序对上文的#EXT-X-DISCONTINUITY做出的动作是不必要的，
+                        //其实上下文是同一种编码，需要恢复到原先的part上
+                        if (DelAd && segUrl.Contains("ccode=") && segUrl.Contains("/ad/") && segUrl.Contains("duration="))
                         {
                             segments.RemoveAt(segments.Count - 1);
                             segIndex--;
+                            hasAd = true;
+                        }
+                        //优酷广告(4K分辨率测试)
+                        if (DelAd && segUrl.Contains("ccode=0902") && segUrl.Contains("duration="))
+                        {
+                            segments.RemoveAt(segments.Count - 1);
+                            segIndex--;
+                            hasAd = true;
                         }
                         expectSegment = false;
                     }
@@ -298,7 +348,7 @@ namespace N_m3u8DL_CLI
                     {
                         string listUrl;
                         listUrl = CombineURL(BaseUrl, line);
-                        if (M3u8Url.Contains("akamaized.net") && M3u8Url.Contains("?__gda__"))
+                        if (M3u8Url.Contains("?__gda__"))
                         {
                             listUrl += new Regex("\\?__gda__.*").Match(M3u8Url).Value;
                         }

@@ -15,6 +15,7 @@ namespace N_m3u8DL_CLI
         private int stopCount = 0;           //速度为零的停止
         private int timeOut = 10000;         //超时设置
         private static double downloadedSize = 0;   //已下载大小
+        private static bool disableIntegrityCheck = false; //关闭完整性检查
 
         private string jsonFile = string.Empty;
         private string headers = string.Empty;
@@ -58,6 +59,7 @@ namespace N_m3u8DL_CLI
         public static int CalcTime { get => calcTime; set => calcTime = value; }
         public static int Count { get => count; set => count = value; }
         public static int PartsCount { get => partsCount; set => partsCount = value; }
+        public static bool DisableIntegrityCheck { get => disableIntegrityCheck; set => disableIntegrityCheck = value; }
 
         public void DoDownload()
         {
@@ -150,6 +152,7 @@ namespace N_m3u8DL_CLI
             //开始调用下载
             LOGGER.WriteLine("Start Downloading");
             LOGGER.PrintLine("开始下载文件", LOGGER.Warning);
+
             //下载MAP文件（若有）
             try
             {
@@ -223,6 +226,8 @@ namespace N_m3u8DL_CLI
             if (Global.HadReadInfo == false)
             {
                 string href = DownDir + "\\Part_" + 0.ToString(partsPadZero) + "\\" + firstSeg["index"].Value<int>().ToString(segsPadZero) + ".ts";
+                if (File.Exists(DownDir + "\\!MAP.ts"))
+                    href = DownDir + "\\!MAP.ts";
                 Global.GzipHandler(href);
                 bool flag = false;
                 foreach (string ss in (string[])Global.GetVideoInfo(href).ToArray(typeof(string)))
@@ -335,11 +340,19 @@ namespace N_m3u8DL_CLI
         public void IsComplete(int segCount)
         {
             int tsCount = 0;
+
+            if (DisableIntegrityCheck)
+            {
+                tsCount = segCount;
+                goto ll;
+            }
+
             for (int i = 0; i < PartsCount; i++) 
             {
                 tsCount += Global.GetFileCount(DownDir + "\\Part_" + i.ToString(partsPadZero), ".ts");
             }
 
+        ll:
             if (tsCount != segCount)
             {
                 LOGGER.PrintLine("完成数量 " + tsCount + " / " + segCount);
@@ -356,7 +369,7 @@ namespace N_m3u8DL_CLI
             }
             else  //开始合并
             {
-                LOGGER.PrintLine("已下载完毕");
+                LOGGER.PrintLine("已下载完毕" + (DisableIntegrityCheck ? "(已关闭完整性检查)" : ""));
                 Console.WriteLine();
                 if (NoMerge == false)
                 {
@@ -396,7 +409,8 @@ namespace N_m3u8DL_CLI
                                 //检测是否为MPEG-TS封装，不是的话就转换为TS封装
                                 foreach (string s in Global.GetFiles(DownDir + "\\Part_0", ".ts"))
                                 {
-                                    if (!FFmpeg.CheckMPEGTS(s))
+                                    //跳过有MAP的情况
+                                    if (!isVTT && !File.Exists(DownDir + "\\Part_0\\!MAP.ts") && !FFmpeg.CheckMPEGTS(s))
                                     {
                                         //转换
                                         LOGGER.PrintLine("将文件转换到 MPEG-TS 封装：" + Path.GetFileName(s));
@@ -511,7 +525,7 @@ namespace N_m3u8DL_CLI
 
                     FFmpeg.OutPutPath = Path.Combine(Directory.GetParent(DownDir).FullName, DownName);
                     FFmpeg.ReportFile = driverName + "\\:" + exePath.Remove(0, exePath.IndexOf(':') + 1).Replace("\\", "/") + "/Logs/" + Path.GetFileNameWithoutExtension(LOGGER.LOGFILE) + fflogName;
-
+                    
                     //合并分段
                     LOGGER.PrintLine("合并分段中...");
                     for (int i = 0; i < PartsCount; i++)
@@ -543,7 +557,8 @@ namespace N_m3u8DL_CLI
                             //检测是否为MPEG-TS封装，不是的话就转换为TS封装
                             foreach (string s in Global.GetFiles(DownDir, ".ts"))
                             {
-                                if (!FFmpeg.CheckMPEGTS(s))
+                                //跳过有MAP的情况
+                                if (!isVTT && !File.Exists(DownDir + "\\!MAP.ts") && !FFmpeg.CheckMPEGTS(s))
                                 {
                                     //转换
                                     LOGGER.PrintLine("将文件转换到 MPEG-TS 封装：" + Path.GetFileName(s));
@@ -560,7 +575,7 @@ namespace N_m3u8DL_CLI
                                 FFmpeg.Merge(Global.GetFiles(DownDir, ".ts"), MuxFormat, MuxFastStart);
                             else
                             {
-                                JObject json = JObject.Parse(MuxSetJson);
+                                JObject json = JObject.Parse(File.ReadAllText(MuxSetJson, Encoding.UTF8));
                                 string muxFormat = json["muxFormat"].Value<string>();
                                 bool fastStart = Convert.ToBoolean(json["fastStart"].Value<string>());
                                 string poster = json["poster"].Value<string>();

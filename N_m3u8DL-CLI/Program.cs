@@ -5,7 +5,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Security;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -199,6 +201,27 @@ namespace N_m3u8DL_CLI.NetCore
     ///   - 细节优化
     /// 2019年10月18日
     ///   - 去掉了优酷DRM设备参数更改
+    /// 2019年10月23日
+    ///   - 增加disableIntegrityCheck选项
+    /// 2019年10月24日
+    ///   - 捕获Ctrl+C退出，移动光标到正确位置
+    /// 2019年11月30日
+    ///   - 完善芒果TV请求头的自动添加
+    /// 2019年12月16日
+    ///   - 处理文件名特殊字符
+    /// 2019年12月18日
+    ///   - 修复m3u8解析bug导致的无法合并问题
+    ///   - 增加杜比视界识别场景
+    ///   - 修复part大于1时读取json混流文件的严重错误
+    ///   - 自动去除优酷的广告分片及前情提要
+    ///   - 修复腾讯视频HDR10视频下载合并异常问题
+    /// 2020年1月26日
+    ///   - 在央视频回看链接且有endtime参数的情况下，不识别为直播流
+    /// 2020年1月29日
+    ///   - 修复识别大师列表的bug (多个字幕同一个GROUP-ID)
+    ///   - 修复vtt字幕无法正常合并的bug
+    /// 2020年1月31日
+    ///   - ?__gda__行为优化
     /// </summary>
     /// 
 
@@ -216,18 +239,29 @@ namespace N_m3u8DL_CLI.NetCore
                     LOGGER.WriteLine("Exited: Ctrl + C"
                     + "\r\n\r\nTask End: " + DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss")); //Ctrl+C关闭
                     Console.CursorVisible = true;
+                    Console.SetCursorPosition(0, LOGGER.CursorIndex);
                     break;
                 case 2:
                     LOGGER.WriteLine("Exited: Force"
                     + "\r\n\r\nTask End: " + DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss")); //按控制台关闭按钮关闭
                     Console.CursorVisible = true;
+                    Console.SetCursorPosition(0, LOGGER.CursorIndex);
                     break;
             }
             return false;
         }
 
+        private static bool ValidateServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            return true;
+        }
+
+
         static void Main(string[] args)
         {
+            SetConsoleCtrlHandler(cancelHandler, true);
+            ServicePointManager.ServerCertificateValidationCallback = ValidateServerCertificate;
+
             try
             {
                 //goto httplitsen;
@@ -281,6 +315,8 @@ namespace N_m3u8DL_CLI.NetCore
                 int timeOut = 10; //默认10秒
                 string baseUrl = "";
                 string reqHeaders = "";
+                string keyFile = "";
+                string keyBase64 = "";
                 string muxSetJson = "MUXSETS.json";
                 string workDir = CURRENT_PATH + "\\Downloads";
                 bool muxFastStart = false;
@@ -316,6 +352,8 @@ namespace N_m3u8DL_CLI.NetCore
     --retryCount Count          设定程序的重试次数(默认为15)
     --timeOut    Sec            设定程序网络请求的超时时间(单位为秒，默认为10秒)
     --muxSetJson File           使用外部json文件定义混流选项
+    --useKeyFile File           使用外部16字节文件定义AES-128解密KEY
+    --useKeyBase64 Base64String 使用Base64字符串定义AES-128解密KEY
     --downloadRange Range       仅下载视频的一部分分片或长度
     --stopSpeed  Number         当速度低于此值时，重试(单位为KB/s)
     --maxSpeed   Number         设置下载速度上限(单位为KB/s)
@@ -326,7 +364,8 @@ namespace N_m3u8DL_CLI.NetCore
     --enableAudioOnly           合并时仅封装音频轨道
     --disableDateInfo           关闭混流中的日期写入
     --noMerge                   禁用自动合并
-    --noProxy                   不自动使用系统代理");
+    --noProxy                   不自动使用系统代理
+    --disableIntegrityCheck      不检测分片数量是否完整");
                     return;
                 }
                 if (arguments.Has("--enableDelAfterDone"))
@@ -361,6 +400,10 @@ namespace N_m3u8DL_CLI.NetCore
                 {
                     muxFastStart = true;
                 }
+                if (arguments.Has("--disableIntegrityCheck"))
+                {
+                    DownloadManager.DisableIntegrityCheck = true;
+                }
                 if (arguments.Has("--enableAudioOnly"))
                 {
                     Global.VIDEO_TYPE = "IGNORE";
@@ -376,7 +419,16 @@ namespace N_m3u8DL_CLI.NetCore
                 }
                 if (arguments.Has("--saveName"))
                 {
-                    fileName = arguments.Get("--saveName").Next;
+                    fileName = Global.GetValidFileName(arguments.Get("--saveName").Next);
+                }
+                if (arguments.Has("--useKeyFile"))
+                {
+                    if (File.Exists(arguments.Get("--useKeyFile").Next))
+                        keyFile = arguments.Get("--useKeyFile").Next;
+                }
+                if (arguments.Has("--useKeyBase64"))
+                {
+                    keyBase64 = arguments.Get("--useKeyBase64").Next;
                 }
                 if (arguments.Has("--stopSpeed"))
                 {
@@ -511,6 +563,8 @@ namespace N_m3u8DL_CLI.NetCore
                 parser.DownName = fileName;
                 parser.DownDir = Path.Combine(workDir, parser.DownName);
                 parser.M3u8Url = testurl;
+                parser.KeyBase64 = keyBase64;
+                parser.KeyFile = keyFile;
                 if (baseUrl != "")
                     parser.BaseUrl = baseUrl;
                 parser.Headers = reqHeaders;

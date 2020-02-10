@@ -8,11 +8,17 @@
 ╚═╝  ╚═══╝╚══════╝╚═╝     ╚═╝╚═════╝  ╚═════╝  ╚════╝ ╚═════╝ ╚══════╝  ╚═════╝╚══════╝╚═╝
                                                                                           
 ```
+---
+[![img](https://img.shields.io/github/stars/nilaoda/N_m3u8DL-CLI?label=%E7%82%B9%E8%B5%9E)](https://github.com/nilaoda/N_m3u8DL-CLI)  [![img](https://img.shields.io/github/last-commit/nilaoda/N_m3u8DL-CLI?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4)](https://github.com/nilaoda/N_m3u8DL-CLI)  [![img](https://img.shields.io/github/release/nilaoda/N_m3u8DL-CLI?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/nilaoda/N_m3u8DL-CLI/releases)  [![img](https://img.shields.io/github/license/nilaoda/N_m3u8DL-CLI?label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](https://github.com/nilaoda/N_m3u8DL-CLI)  [![img](https://img.shields.io/badge/URL-%E7%94%A8%E6%88%B7%E6%96%87%E6%A1%A3-blue)](https://nilaoda.github.io/N_m3u8DL-CLI/)
+
+
+# [ENGLISH VERSION](https://github.com/nilaoda/N_m3u8DL-CLI/blob/master/README_ENG.md)
+ 
 # 关于开源
-本项目已与2019年10月9日开源，代码风格和管理真的很差劲，各取所需就好。
+本项目已与2019年10月9日开源，采用MIT许可证，各取所需。
 
 # 关于跨平台
-本项目已通过`.NET Core`实现跨平台，支持Linux、Windows，请移步：https://github.com/nilaoda/N_m3u8DL-CLI_Core
+本项目已通过`.NET Core`实现跨平台，理论支持Mac、Linux、Windows等平台，请移步：https://github.com/nilaoda/N_m3u8DL-CLI_Core
 
 # N_m3u8DL-CLI
 一个**简单易用的**m3u8下载器，下载地址：https://github.com/nilaoda/N_m3u8DL-CLI/releases  
@@ -41,7 +47,7 @@
 
 # 命令行选项
 ```
-N_m3u8DL-CLI.exe <URL|File|JSON> [OPTIONS]  
+N_m3u8DL-CLI.exe <URL|JSON|FILE> [OPTIONS]  
 
     --workDir    Directory      设定程序工作目录
     --saveName   Filename       设定存储文件名(不包括后缀)
@@ -52,6 +58,8 @@ N_m3u8DL-CLI.exe <URL|File|JSON> [OPTIONS]
     --retryCount Count          设定程序的重试次数(默认为15)
     --timeOut    Sec            设定程序网络请求的超时时间(单位为秒，默认为10秒)
     --muxSetJson File           使用外部json文件定义混流选项
+    --useKeyFile File           使用外部16字节文件定义AES-128解密KEY
+    --useKeyBase64 Base64String 使用Base64字符串定义AES-128解密KEY
     --downloadRange Range       仅下载视频的一部分分片或长度
     --stopSpeed  Number         当速度低于此值时，重试(单位为KB/s)
     --maxSpeed   Number         设置下载速度上限(单位为KB/s)
@@ -63,6 +71,7 @@ N_m3u8DL-CLI.exe <URL|File|JSON> [OPTIONS]
     --disableDateInfo           关闭混流中的日期写入
     --noMerge                   禁用自动合并
     --noProxy                   不自动使用系统代理
+    --disableIntegrityCheck     不检测分片数量是否完整
 ```
 
 # 用户文档
